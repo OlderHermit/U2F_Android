@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalUnsignedTypes::class)
+
 package pl.pja.hce_test
 
 import android.security.keystore.KeyGenParameterSpec
@@ -9,10 +11,10 @@ import org.bouncycastle.asn1.x509.KeyUsage
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
-import pl.pja.hce_test.MyHostApduService.Companion.AID
 import java.math.BigInteger
 import java.security.KeyPair
 import java.security.KeyPairGenerator
+import java.security.PrivateKey
 import java.security.cert.X509Certificate
 import java.time.LocalDate
 import java.time.ZoneId
@@ -80,18 +82,8 @@ class HostApduServiceUtil {
             return JcaX509CertificateConverter().getCertificate(certHolder)
         }
 
-        fun getNumberOfPacketsAsString(dataLength: Int): String {
-            return "%02x".format((dataLength / MyHostApduService.packetDataSize) +
-                    if(dataLength % MyHostApduService.packetDataSize != 0) 1 else 0)
-        }
-
-        fun parceHexApdu(packet: String): String{
-            return packet.substring(24 + AID.length)
-        }
-
-        //will not be needed because pn532 wraps data in it's packet containing data size
-        fun packetLengthInHex(dataLength: Int): String{
-            return "%04x".format(dataLength)
+        fun generateKeyHandle(privateKey: PrivateKey): UByteArray {
+            TODO()
         }
     }
 }

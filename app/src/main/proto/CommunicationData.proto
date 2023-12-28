@@ -1,0 +1,27 @@
+syntax = "proto3";
+import "google/protobuf/timestamp.proto";
+
+option java_package = "pl.pja.hce_test";
+option java_multiple_files = true;
+
+message CommunicationData {
+  enum Commands {
+    Unspecified = 0;
+    Register = 1;
+    Authenticate = 2;
+    Version = 3;
+    //te meet doc standards (raw msg formats) should start with code 0x40+
+    Continue = 4;
+    Echo = 5;
+  }
+
+  Commands command = 1;
+  repeated uint32 channel = 2;
+  int32 numberOfExpectedPackets = 3;
+  int32 numberOfAcquiredPackets = 4;
+  int32 numberOfReturnedPackets = 5;
+  int32 numberOfSendPackets = 6;
+  repeated uint32 data = 7;
+  repeated uint32 returnData = 8;
+  int64 date = 9;
+}
