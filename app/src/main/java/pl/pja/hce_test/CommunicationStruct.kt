@@ -65,7 +65,7 @@ data class CommunicationStruct(
         fun createCommunicationStruct(communicationData: CommunicationData): CommunicationStruct{
             return CommunicationStruct(
                 communicationData.command,
-                communicationData.channelList.map { i -> i.toUByte() }.toUByteArray(),
+                communicationData.channelList.map { i -> (i.and(0xFF)).toUByte() }.toUByteArray(),
                 communicationData.numberOfExpectedPackets,
                 communicationData.numberOfAcquiredPackets,
                 communicationData.numberOfReturnedPackets,
@@ -81,17 +81,17 @@ data class CommunicationStruct(
 
         fun createCommunicationStruct(commandApdu: UByteArray): CommunicationStruct{
 
-            var command = Commands.values().firstOrNull {it.number == commandApdu[12 + AID.size].toInt()}
+            var command = Commands.values().firstOrNull {it.ordinal == commandApdu[11 + AID.size].toInt()}
             if (command == null) command = Commands.UNRECOGNIZED
 
             return CommunicationStruct(
                 command,
                 commandApdu.copyOfRange(5 + AID.size, 9 + AID.size),
-                commandApdu[10 + AID.size].toInt(),
+                commandApdu[9 + AID.size].toInt(),
                 1,
                 0,
                 0,
-                commandApdu.copyOfRange(13 + AID.size, commandApdu.size),
+                commandApdu.copyOfRange(16 + AID.size, commandApdu.size-1),
                 ArrayList(),
                 Date.from(Instant.now())//change to api call or switch to utc for safety
             )
@@ -100,7 +100,7 @@ data class CommunicationStruct(
         fun createEmpty(): CommunicationStruct{
             return CommunicationStruct(
                 Commands.UNRECOGNIZED,
-                UByteArray(0),
+                UByteArray(4),
                 0,
                 0,
                 0,

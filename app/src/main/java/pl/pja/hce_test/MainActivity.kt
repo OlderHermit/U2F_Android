@@ -10,6 +10,9 @@ import android.widget.Button
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
+import androidx.datastore.core.DataStore
+import androidx.datastore.dataStore
+import kotlinx.coroutines.runBlocking
 
 
 class MainActivity : AppCompatActivity() {
@@ -24,7 +27,8 @@ class MainActivity : AppCompatActivity() {
 
         bt = findViewById(R.id.bt_test)
         bt.setOnClickListener {
-            Log.d("HCE", isMyServiceRunning(MyHostApduService::class.java).toString())
+            shouldClean = true
+            //Log.d("HCE", isMyServiceRunning(MyHostApduService::class.java).toString())
         }
 
         myIntent = Intent(this, MyHostApduService::class.java)
@@ -54,7 +58,12 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private var shouldWork: Boolean = false
-        fun shouldWork(): Boolean{ return shouldWork }
+        private var shouldClean: Boolean = false
+        fun shouldWork(): Boolean = shouldWork
+        fun shouldClean(): Boolean = shouldClean
+        fun cleaned() {
+            shouldClean = false
+        }
     }
 
 }

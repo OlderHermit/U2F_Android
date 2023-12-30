@@ -10,6 +10,7 @@ import androidx.datastore.dataStore
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import pl.pja.hce_test.CommunicationData.Commands
+import pl.pja.hce_test.CommunicationData.getDefaultInstance
 import pl.pja.hce_test.HostApduServiceUtil.Companion.generateCert
 import pl.pja.hce_test.HostApduServiceUtil.Companion.generateKeyHandle
 import pl.pja.hce_test.HostApduServiceUtil.Companion.generateKeyPair
@@ -24,7 +25,6 @@ class MyHostApduService : HostApduService() {
         fileName = "communication_data",
         serializer = CommunicationDataSerializer
     )
-
 
     private fun BigInteger.toByteArrayOfLength(length: Int): ByteArray {
         val byteArray = ByteArray(length)
@@ -48,7 +48,7 @@ class MyHostApduService : HostApduService() {
         var response = UByteArray(0)
         val statusCheck = checkMessageConstrains(commandApdu.asUByteArray())
 
-        if(statusCheck.contentEquals(STATUS_SUCCESS))
+        if(!statusCheck.contentEquals(STATUS_SUCCESS))
             return (RETURN_PREAMBLE + 0x01u + STATUS_FAILED).toByteArray()
 
         Log.d("HCE", "processCommandApdu")
@@ -56,6 +56,7 @@ class MyHostApduService : HostApduService() {
 
         //create struct
         val communicationStruct = CommunicationStruct.createCommunicationStruct(commandApdu.asUByteArray())
+        Log.d("HCE", "command ${communicationStruct.command.name}" )
         /**
         //czy miałem taki channel
             //nie
@@ -86,6 +87,16 @@ class MyHostApduService : HostApduService() {
         var returnStatusOk = false
         var dataStruct: CommunicationStruct = CommunicationStruct.createEmpty()
 
+        if (MainActivity.shouldClean()){
+            runBlocking {
+                dataStore.updateData {
+                    getDefaultInstance()
+                }
+            }
+            MainActivity.cleaned()
+            Log.d("HCE", "cleaned cache")
+        }
+
         runBlocking {
             try {
                 dataStruct = CommunicationStruct.createCommunicationStruct(dataStore.data.first())
@@ -102,6 +113,9 @@ class MyHostApduService : HostApduService() {
 
                 if (communicationStruct.command !in arrayOf(Commands.UNRECOGNIZED, Commands.Continue)){
                     dataStruct.addData(communicationStruct.data)
+                    dataStore.updateData {
+                        dataStruct.toCommunicationData()
+                    }
                     returnStatusOk = true
                 }
                 if (dataStruct.numberOfAcquiredPackets == dataStruct.numberOfExpectedPackets){
@@ -117,7 +131,9 @@ class MyHostApduService : HostApduService() {
                 }
             }
         }
-
+        //Log.d("HCE", "channel $dataStruct")
+        Log.d("HCE", "num of acq ${dataStruct.numberOfAcquiredPackets} expect ${dataStruct.numberOfExpectedPackets}")
+        Log.d("HCE", "all data acquired $allDataAcquired returnStatus $returnStatusOk")
         if (!allDataAcquired){
             return if (returnStatusOk)
                 (RETURN_PREAMBLE + 0x01u + STATUS_SUCCESS).asByteArray()
@@ -180,9 +196,11 @@ class MyHostApduService : HostApduService() {
             }
             Commands.Echo -> {
                 dataStruct.generateReturnData(dataStruct.data)
+                Log.d("HCE", "${dataStruct.data}")
+                Log.d("HCE", "${dataStruct.returnData}")
             }
             Commands.Continue -> {
-                Log.d("HCE", "Continue for ${dataStruct.channel.joinToString { "%02X ".format(it) }}")
+                Log.d("HCE", "Continue for ${dataStruct.channel.toList().joinToString { "%02X ".format(it.toInt()) }}")
                 if (communicationStruct.data[0].toInt() >= dataStruct.returnData.size) {
                     Log.d("HCE", "Error index out of range expected max ${dataStruct.numberOfSendPackets}, got ${communicationStruct.data[0].toInt()}")
                     return (RETURN_PREAMBLE + STATUS_FAILED).asByteArray()
@@ -194,7 +212,7 @@ class MyHostApduService : HostApduService() {
                         dataStruct.toCommunicationData()
                     }
                 }
-
+                Log.d("HCE", "return ${dataStruct.returnData[0].joinToString(" "){"%02X".format(it.toInt())}}")
                 return (RETURN_PREAMBLE + dataStruct.returnData[communicationStruct.data[0].toInt()] + STATUS_SUCCESS).asByteArray()
             }
             else -> {
@@ -210,7 +228,8 @@ class MyHostApduService : HostApduService() {
         }
 
         Log.d("HCE", "sending first part of response out of ${dataStruct.numberOfSendPackets}")
-        return (RETURN_PREAMBLE + dataStruct.numberOfSendPackets.toUByte() + dataStruct.returnData[0] + STATUS_FAILED).asByteArray()
+        Log.d("HCE", "return ${dataStruct.returnData[0].joinToString(" "){"%02X".format(it.toInt())}}")
+        return (RETURN_PREAMBLE + dataStruct.numberOfSendPackets.toUByte() + dataStruct.returnData[0] + STATUS_SUCCESS).asByteArray()
     }
 
     override fun onDeactivated(reason: Int) {
@@ -264,8 +283,9 @@ class MyHostApduService : HostApduService() {
                 return STATUS_FAILED
             }
 
-            if (hexCommandApdu.copyOfRange(5, 5 + AID.size).contentEquals(AID)) {
+            if (!hexCommandApdu.copyOfRange(5, 5 + AID.size).contentEquals(AID)) {
                 Log.d("HCE", "should have never happened because of xml hardcoded AID")
+
                 return STATUS_FAILED
             }
             return STATUS_SUCCESS
