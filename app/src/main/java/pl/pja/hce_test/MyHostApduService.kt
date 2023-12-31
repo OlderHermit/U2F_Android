@@ -57,6 +57,7 @@ class MyHostApduService : HostApduService() {
         //create struct
         val communicationStruct = CommunicationStruct.createCommunicationStruct(commandApdu.asUByteArray())
         Log.d("HCE", "command ${communicationStruct.command.name}" )
+        Log.d("HCE", "$communicationStruct" )
         /**
         //czy miałem taki channel
             //nie
@@ -111,26 +112,31 @@ class MyHostApduService : HostApduService() {
                 if (communicationStruct.command == Commands.Continue)
                     returnStatusOk = true //confirmation massage was corrupted
 
-                if (communicationStruct.command !in arrayOf(Commands.UNRECOGNIZED, Commands.Continue)){
+                if ((communicationStruct.command !in arrayOf(Commands.UNRECOGNIZED, Commands.Continue))){
+                    Log.d("HCE", "data added")
                     dataStruct.addData(communicationStruct.data)
                     dataStore.updateData {
                         dataStruct.toCommunicationData()
                     }
                     returnStatusOk = true
                 }
-                if (dataStruct.numberOfAcquiredPackets == dataStruct.numberOfExpectedPackets){
-                    allDataAcquired = true
-                }
 
             } catch (_: NoSuchElementException){
+                Log.d("HCE", "caught")
                 if (communicationStruct.command !in arrayOf(Commands.UNRECOGNIZED, Commands.Continue)) {
                     dataStore.updateData {
                         communicationStruct.toCommunicationData()
                     }
+                    dataStruct = communicationStruct
                     returnStatusOk = true
                 }
             }
         }
+
+        if (dataStruct.numberOfAcquiredPackets == dataStruct.numberOfExpectedPackets && dataStruct.numberOfExpectedPackets != 0){
+            allDataAcquired = true
+        }
+
         //Log.d("HCE", "channel $dataStruct")
         Log.d("HCE", "num of acq ${dataStruct.numberOfAcquiredPackets} expect ${dataStruct.numberOfExpectedPackets}")
         Log.d("HCE", "all data acquired $allDataAcquired returnStatus $returnStatusOk")
@@ -154,13 +160,14 @@ class MyHostApduService : HostApduService() {
                 uncompressedPublicKey[0] = 0x04  // indicates uncompressed format
                 System.arraycopy(x, 0, uncompressedPublicKey, 1, x.size)
                 System.arraycopy(y, 0, uncompressedPublicKey, 1 + x.size, y.size)
-                Log.d("HCE", "pub key: ${uncompressedPublicKey.joinToString { "%02X ".format(it.toUByte()) }} len = ${uncompressedPublicKey.size}")
+                Log.d("HCE", "pub key: ${uncompressedPublicKey.joinToString { "%02X ".format(it.toInt()) }} len = ${uncompressedPublicKey.size}")
 
                 //TODO probably should use challenge data to generate cert
+                //TODO permanent save of generated credential
                 val cert = generateCert(keyPair)
-                Log.d("HCE", "cert: ${cert.encoded.joinToString { "%02X ".format(it.toUByte()) }} len = ${cert.encoded.size}")
+                Log.d("HCE", "cert: ${cert.encoded.joinToString { "%02X ".format(it.toInt()) }} len = ${cert.encoded.size}")
 
-                val handle = generateKeyHandle(keyPair.private)
+                val handle = ubyteArrayOf(0x10u, 0x11u, 0x10u, 0x11u, 0x10u)//generateKeyHandle(keyPair.private)
 
                 /**
                  * //register response
@@ -187,12 +194,13 @@ class MyHostApduService : HostApduService() {
                 response += dataStruct.data
                 response += handle
                 response += uncompressedPublicKey.asUByteArray()
+                response += STATUS_SUCCESS
 
                 dataStruct.generateReturnData(response)
             }
             Commands.Authenticate -> TODO()
             Commands.Version -> {
-                dataStruct.generateReturnData("U2F_V2".encodeToByteArray().asUByteArray())
+                dataStruct.generateReturnData("U2F_V2".encodeToByteArray().asUByteArray() + STATUS_SUCCESS)
             }
             Commands.Echo -> {
                 dataStruct.generateReturnData(dataStruct.data)
@@ -201,19 +209,21 @@ class MyHostApduService : HostApduService() {
             }
             Commands.Continue -> {
                 Log.d("HCE", "Continue for ${dataStruct.channel.toList().joinToString { "%02X ".format(it.toInt()) }}")
-                if (communicationStruct.data[0].toInt() >= dataStruct.returnData.size) {
-                    Log.d("HCE", "Error index out of range expected max ${dataStruct.numberOfSendPackets}, got ${communicationStruct.data[0].toInt()}")
+
+                val packetNumber = communicationStruct.data[0].toInt()
+                if (packetNumber >= dataStruct.returnData.size) {
+                    Log.d("HCE", "Error index out of range expected max ${dataStruct.numberOfSendPackets}, got $packetNumber")
                     return (RETURN_PREAMBLE + STATUS_FAILED).asByteArray()
                 }
 
-                dataStruct.numberOfReturnedPackets = communicationStruct.data[0].toInt()
+                dataStruct.numberOfReturnedPackets = packetNumber
                 runBlocking {
                     dataStore.updateData {
                         dataStruct.toCommunicationData()
                     }
                 }
-                Log.d("HCE", "return ${dataStruct.returnData[0].joinToString(" "){"%02X".format(it.toInt())}}")
-                return (RETURN_PREAMBLE + dataStruct.returnData[communicationStruct.data[0].toInt()] + STATUS_SUCCESS).asByteArray()
+                Log.d("HCE", "return ${dataStruct.returnData[packetNumber].joinToString(" "){"%02X".format(it.toInt())}}")
+                return (RETURN_PREAMBLE + dataStruct.returnData[packetNumber] + STATUS_SUCCESS).asByteArray()
             }
             else -> {
                 Log.d("HCE", "could not parce code for func %02X".format(commandApdu[12 + AID.size]))
