@@ -4,8 +4,8 @@ import pl.pja.hce_test.CommunicationData.Commands
 import pl.pja.hce_test.MyHostApduService.Companion.AID
 import pl.pja.hce_test.MyHostApduService.Companion.MAX_DATA_PER_PACKET
 import java.time.Instant
-import java.util.Collections
-import java.util.Date
+import java.util.*
+import kotlin.collections.ArrayList
 
 @OptIn(ExperimentalUnsignedTypes::class)
 data class CommunicationStruct(
@@ -82,6 +82,8 @@ data class CommunicationStruct(
         fun createCommunicationStruct(commandApdu: UByteArray): CommunicationStruct{
 
             var command = Commands.values().firstOrNull {it.ordinal == commandApdu[11 + AID.size].toInt()}
+            val data: UByteArray = commandApdu.copyOfRange(16 + AID.size, commandApdu.size - 1)
+
             if (command == null) command = Commands.UNRECOGNIZED
 
             return CommunicationStruct(
@@ -91,7 +93,7 @@ data class CommunicationStruct(
                 1,
                 0,
                 0,
-                commandApdu.copyOfRange(16 + AID.size, commandApdu.size-1),
+                data,
                 ArrayList(),
                 Date.from(Instant.now())//change to api call or switch to utc for safety
             )

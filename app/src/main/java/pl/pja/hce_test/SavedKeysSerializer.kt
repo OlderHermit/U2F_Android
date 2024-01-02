@@ -6,18 +6,18 @@ import com.google.protobuf.InvalidProtocolBufferException
 import java.io.InputStream
 import java.io.OutputStream
 
-object KeyAliasesSerializer : Serializer<KeyAliases> {
-    override val defaultValue: KeyAliases = KeyAliases.getDefaultInstance()
+object SavedKeysSerializer : Serializer<SavedKeys> {
+    override val defaultValue: SavedKeys = SavedKeys.getDefaultInstance()
 
-    override suspend fun readFrom(input: InputStream): KeyAliases {
+    override suspend fun readFrom(input: InputStream): SavedKeys {
         try {
-            return KeyAliases.parseFrom(input)
+            return SavedKeys.parseFrom(input)
         } catch (exception: InvalidProtocolBufferException) {
             throw CorruptionException("Cannot read proto.", exception)
         }
     }
 
-    override suspend fun writeTo(t: KeyAliases, output: OutputStream) {
+    override suspend fun writeTo(t: SavedKeys, output: OutputStream) {
         t.writeTo(output)
     }
 }

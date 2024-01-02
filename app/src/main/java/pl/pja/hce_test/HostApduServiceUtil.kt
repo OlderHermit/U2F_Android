@@ -4,6 +4,7 @@ package pl.pja.hce_test
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.util.Log
 import androidx.datastore.core.DataStore
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -17,39 +18,34 @@ import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import java.math.BigInteger
 import java.security.*
 import java.security.cert.X509Certificate
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.*
 import javax.crypto.Cipher
-import kotlin.math.pow
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+
 
 class HostApduServiceUtil {
     companion object {
-        data class KeyAliasStruct(
-            val alias: String,
+        data class RegisterDataStruct(
             val keyHandle: UByteArray,
             val appId: UByteArray
         )
 
-        fun generateKeyPair(): Pair<KeyPair, String> {
+        fun generateKeyPair(): KeyPair {
             val kpg: KeyPairGenerator = KeyPairGenerator.getInstance(
-                KeyProperties.KEY_ALGORITHM_EC,
-                "AndroidKeyStore"
+                KeyProperties.KEY_ALGORITHM_EC
             )
-            val alias : String = "Test_U2F_${Instant.now().toEpochMilli()}_${(Math.random()* 10.0.pow(Math.random() * 101)).toInt()}"
-            val parameterSpec: KeyGenParameterSpec = KeyGenParameterSpec.Builder(
-                alias,
-                KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
-            ).run {
-                setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
-                setKeySize(256)
-                build()
-            }
+            kpg.initialize(256)
 
-            kpg.initialize(parameterSpec)
+            return kpg.generateKeyPair()
+        }
 
-            return Pair<KeyPair, String>(kpg.generateKeyPair(), alias)
+        fun savePrivateKey(handle: UByteArray, privateKey: PrivateKey, certificate: X509Certificate){
+            val keyStore = KeyStore.getInstance("AndroidKeyStore")
+            keyStore.load(null)
+            keyStore.setKeyEntry(handle.joinToString {"%02X".format(it.toInt())}, privateKey, null, arrayOf(certificate))
         }
 
         fun generateCert(keyPair: KeyPair): X509Certificate {
@@ -98,10 +94,14 @@ class HostApduServiceUtil {
             keyStore.load(null)
 
             val alias = "Test_U2F_Master"
+            //if (keyStore.containsAlias(alias)) {
+            //    Log.d("HCE", "regenerated key")
+            //    keyStore.deleteEntry(alias)
+            //}
 
-            val masterKey: Key = (
+            val masterKey: SecretKey = (
                     if (!keyStore.containsAlias(alias)) {
-                        val kpg: KeyPairGenerator = KeyPairGenerator.getInstance(
+                        val kg: KeyGenerator = KeyGenerator.getInstance(
                             KeyProperties.KEY_ALGORITHM_AES,
                             "AndroidKeyStore"
                         )
@@ -110,40 +110,42 @@ class HostApduServiceUtil {
                             KeyProperties.PURPOSE_ENCRYPT
                         ).run {
                             setDigests(KeyProperties.DIGEST_SHA512)
+                            setBlockModes(KeyProperties.BLOCK_MODE_CBC)
+                            setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
+                            setKeySize(256)
                             build()
                         }
 
-                        kpg.initialize(parameterSpec)
-                        //public == private because of AES algorithm
-                        kpg.generateKeyPair().private
+                        kg.init(parameterSpec)
+                        kg.generateKey()
                     } else {
-                        keyStore.getKey(alias, null)
+                        keyStore.getKey(alias, null) as SecretKey
                     }
                     )
-            val cipher = Cipher.getInstance(masterKey.algorithm)
+
+            val cipher = Cipher.getInstance("AES/CBC/PKCS7Padding")
             cipher.init(Cipher.ENCRYPT_MODE, masterKey)
 
             return cipher.doFinal(privateKey.encoded).asUByteArray()
         }
 
-        fun generateKeyAlias(alias: String, handle: UByteArray, appId: UByteArray): KeyAliases.KeyAlias {
-            return KeyAliases.KeyAlias.newBuilder()
-                .setAlias(alias)
+        fun saveGeneratedRegister(handle: UByteArray, appId: UByteArray): SavedKeys.Key {
+            return SavedKeys.Key.newBuilder()
                 .addAllKeyHandle(handle.map { it.toInt() })
                 .addAllAppId(appId.map { it.toInt() })
                 .build()
         }
 
-        fun getKeyAliasStruct(store: DataStore<KeyAliases>, handle: UByteArray): KeyAliasStruct?{
+        fun getRegisterDataStruct(store: DataStore<SavedKeys>, handle: UByteArray): RegisterDataStruct?{
             val test = handle.map { it.toInt() }
-            var res = KeyAliases.KeyAlias.getDefaultInstance()
+            var res = SavedKeys.Key.getDefaultInstance()
             runBlocking {
                 //first() should never find null (if null register should generate new instance)
-                res = store.data.first().dataList.firstOrNull { it.keyHandleList == test }
+                //store.data.first().keysList.forEach { Log.d("HCE", "saved handle: ${it.keyHandleList.joinToString { it1 -> "%02X".format(it1.toInt())} }")}
+                res = store.data.first().keysList.firstOrNull { it.keyHandleList == test }
             }
             return if(res != null)
-                KeyAliasStruct(
-                    res.alias,
+                RegisterDataStruct(
                     res.keyHandleList.map { it.toUByte() }.toUByteArray(),
                     res.appIdList.map { it.toUByte() }.toUByteArray()
                 )
@@ -151,14 +153,17 @@ class HostApduServiceUtil {
                 null
         }
 
-        fun signData(data: UByteArray, keyStore: KeyStore, keyAlias: String): UByteArray {
+        fun signData(data: UByteArray, keyStore: KeyStore, handle: UByteArray): UByteArray {
             keyStore.load(null)
 
-            val key: Key = keyStore.getKey(keyAlias, null)
-            val cipher = Cipher.getInstance(key.algorithm)
-            cipher.init(Cipher.ENCRYPT_MODE, key)
+            val key = keyStore.getKey(handle.joinToString {"%02X".format(it.toInt())}, null) as PrivateKey
+            val signature: ByteArray = Signature.getInstance("ECDSA").run {//prev SHA256withECDSA
+                initSign(key)
+                update(data.asByteArray())
+                sign()
+            }
 
-            return cipher.doFinal(data.asByteArray()).asUByteArray()
+            return signature.asUByteArray()
         }
     }
 }

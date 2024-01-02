@@ -15,10 +15,12 @@ import kotlinx.coroutines.runBlocking
 import pl.pja.hce_test.CommunicationData.Commands
 import pl.pja.hce_test.CommunicationData.getDefaultInstance
 import pl.pja.hce_test.HostApduServiceUtil.Companion.generateCert
-import pl.pja.hce_test.HostApduServiceUtil.Companion.generateKeyAlias
 import pl.pja.hce_test.HostApduServiceUtil.Companion.generateKeyHandle
 import pl.pja.hce_test.HostApduServiceUtil.Companion.generateKeyPair
-import pl.pja.hce_test.HostApduServiceUtil.Companion.getKeyAliasStruct
+import pl.pja.hce_test.HostApduServiceUtil.Companion.RegisterDataStruct
+import pl.pja.hce_test.HostApduServiceUtil.Companion.getRegisterDataStruct
+import pl.pja.hce_test.HostApduServiceUtil.Companion.saveGeneratedRegister
+import pl.pja.hce_test.HostApduServiceUtil.Companion.savePrivateKey
 import pl.pja.hce_test.HostApduServiceUtil.Companion.signData
 import java.math.BigInteger
 import java.security.KeyPair
@@ -34,9 +36,9 @@ class MyHostApduService : HostApduService() {
         fileName = "communication_data",
         serializer = CommunicationDataSerializer
     )
-    private val dataStoreAliases: DataStore<KeyAliases> by dataStore(
-        fileName = "key_aliases_data",
-        serializer = KeyAliasesSerializer
+    private val dataStoreAliases: DataStore<SavedKeys> by dataStore(
+        fileName = "saved_keys_data",
+        serializer = SavedKeysSerializer
     )
 
     private fun BigInteger.toByteArrayOfLength(length: Int): ByteArray {
@@ -164,7 +166,7 @@ class MyHostApduService : HostApduService() {
 
         when (communicationStruct.command) {
             Commands.Register -> {
-                val (keyPair : KeyPair, alias : String) = generateKeyPair()
+                val keyPair : KeyPair = generateKeyPair()
 
                 //user public key in X,Y uncompressed format
                 val ecPoint: ECPoint = (keyPair.public as ECPublicKey).w
@@ -184,16 +186,17 @@ class MyHostApduService : HostApduService() {
                 val handle = generateKeyHandle(KeyStore.getInstance("AndroidKeyStore"), keyPair.private)
 
                 //save
+                savePrivateKey(handle, keyPair.private, cert)
                 runBlocking {
                     val keyAliases = dataStoreCommunication.data.firstOrNull()
                     if (keyAliases == null){
                         dataStoreAliases.updateData {
-                            KeyAliases.getDefaultInstance()
+                            SavedKeys.getDefaultInstance()
                         }
                     }
                     dataStoreAliases.updateData {
-                        it.toBuilder().addData(
-                            generateKeyAlias(alias, handle, dataStruct.data.copyOfRange(32, 64))
+                        it.toBuilder().addKeys(
+                            saveGeneratedRegister(handle, dataStruct.data.copyOfRange(33, 65))
                         ).build()
                     }
                 }
@@ -225,7 +228,7 @@ class MyHostApduService : HostApduService() {
                 response += handle
                 response += cert.encoded.asUByteArray()
                 //signature
-                response += signData(signatureData, KeyStore.getInstance("AndroidKeyStore"), alias)
+                response += signData(signatureData, KeyStore.getInstance("AndroidKeyStore"), handle)
                 response += STATUS_SUCCESS
 
                 dataStruct.generateReturnData(response)
@@ -247,22 +250,26 @@ class MyHostApduService : HostApduService() {
                 val challenge = dataStruct.data.copyOfRange(1, 33)
                 val application = dataStruct.data.copyOfRange(33, 65)
                 val handleLength = dataStruct.data[65]
-                val handle = dataStruct.data.copyOfRange(66, dataStruct.data.size)
+                val handle = dataStruct.data.copyOfRange(66, 66 + handleLength.toInt())
+                Log.d("HCE", "handle length $handleLength")
 
                 if (controlByte !in ubyteArrayOf(0x03u, 0x07u, 0x08u)) {
                     Log.d("HCE", "incorrect request code $controlByte")
                     return (RETURN_PREAMBLE + 0x01u + STATUS_FAILED).asByteArray()
                 }
+                Log.d("HCE", "send handle   ${handle.joinToString {"%02X".format(it.toInt())}}")
+                val registerDataStruct: RegisterDataStruct =
+                    getRegisterDataStruct(dataStoreAliases, handle)
+                        ?: RegisterDataStruct(ubyteArrayOf(), ubyteArrayOf())
 
-                val keyAliasStruct: HostApduServiceUtil.Companion.KeyAliasStruct =
-                    getKeyAliasStruct(dataStoreAliases, handle)
-                        ?: HostApduServiceUtil.Companion.KeyAliasStruct("", handle, application)
-
-                if (keyAliasStruct.alias == ""){
+                if (registerDataStruct.keyHandle.isEmpty()){
                     Log.d("HCE", "key handle not found")
                     logInAllowed = false
-                }else if (keyAliasStruct.appId != application){
+                }else if (!registerDataStruct.appId.contentEquals(application)){
                     Log.d("HCE", "app ids mismatch")
+                    Log.d("HCE", "got ${application.joinToString { "%02X".format(it.toInt()) }}")
+                    Log.d("HCE", "app ${registerDataStruct.appId.joinToString { "%02X".format(it.toInt()) }}}")
+
                     logInAllowed = false
                 }
                 //turned off for the time being
@@ -300,7 +307,9 @@ class MyHostApduService : HostApduService() {
 
                 response += logInAllowed.toUByte()
                 response += counterBytes
-                response += if (keyAliasStruct.alias != "") signData(signatureData, KeyStore.getInstance("AndroidKeyStore"), keyAliasStruct.alias) else signatureData
+                response += if (registerDataStruct.keyHandle.isEmpty()) signData(signatureData, KeyStore.getInstance("AndroidKeyStore"), registerDataStruct.keyHandle) else signatureData
+                response += STATUS_SUCCESS
+
                 dataStruct.generateReturnData(response)
             }
             Commands.Version -> {
