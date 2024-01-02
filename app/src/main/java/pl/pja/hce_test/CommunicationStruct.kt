@@ -35,17 +35,17 @@ data class CommunicationStruct(
     }
 
     fun toCommunicationData(): CommunicationData{
-        return CommunicationData.getDefaultInstance().toBuilder().apply {
-            command = this@CommunicationStruct.command
-            addAllChannel(channel.map { it.toInt()})
-            numberOfExpectedPackets = this@CommunicationStruct.numberOfExpectedPackets
-            numberOfAcquiredPackets = this@CommunicationStruct.numberOfAcquiredPackets
-            numberOfReturnedPackets = this@CommunicationStruct.numberOfReturnedPackets
-            numberOfSendPackets = this@CommunicationStruct.numberOfSendPackets
-            addAllData(data.map { it.toInt() })
-            addAllReturnData(returnData.flatten().map { it.toInt() })
-            date = this@CommunicationStruct.date.toInstant().toEpochMilli()
-        }.build()
+        return CommunicationData.newBuilder()
+            .setCommand(command)
+            .addAllChannel(channel.map { it.toInt() })
+            .setNumberOfExpectedPackets(numberOfExpectedPackets)
+            .setNumberOfAcquiredPackets(numberOfAcquiredPackets)
+            .setNumberOfReturnedPackets(numberOfReturnedPackets)
+            .setNumberOfSendPackets(numberOfSendPackets)
+            .addAllData(data.map { it.toInt() })
+            .addAllReturnData(returnData.flatten().map { it.toInt() })
+            .setDate(date.toInstant().toEpochMilli())
+            .build()
     }
 
     fun addData(data: UByteArray) {

@@ -2,28 +2,41 @@
 
 package pl.pja.hce_test
 
+import android.content.SharedPreferences
 import android.nfc.cardemulation.HostApduService
 import android.os.Bundle
 import android.util.Log
+import androidx.core.content.edit
 import androidx.datastore.core.DataStore
 import androidx.datastore.dataStore
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.runBlocking
 import pl.pja.hce_test.CommunicationData.Commands
 import pl.pja.hce_test.CommunicationData.getDefaultInstance
 import pl.pja.hce_test.HostApduServiceUtil.Companion.generateCert
+import pl.pja.hce_test.HostApduServiceUtil.Companion.generateKeyAlias
 import pl.pja.hce_test.HostApduServiceUtil.Companion.generateKeyHandle
 import pl.pja.hce_test.HostApduServiceUtil.Companion.generateKeyPair
+import pl.pja.hce_test.HostApduServiceUtil.Companion.getKeyAliasStruct
+import pl.pja.hce_test.HostApduServiceUtil.Companion.signData
 import java.math.BigInteger
+import java.security.KeyPair
+import java.security.KeyStore
 import java.security.interfaces.ECPublicKey
 import java.security.spec.ECPoint
 import java.util.*
 
 
 class MyHostApduService : HostApduService() {
-    private val dataStore: DataStore<CommunicationData> by dataStore(
+    private lateinit var prefs: SharedPreferences
+    private val dataStoreCommunication: DataStore<CommunicationData> by dataStore(
         fileName = "communication_data",
         serializer = CommunicationDataSerializer
+    )
+    private val dataStoreAliases: DataStore<KeyAliases> by dataStore(
+        fileName = "key_aliases_data",
+        serializer = KeyAliasesSerializer
     )
 
     private fun BigInteger.toByteArrayOfLength(length: Int): ByteArray {
@@ -38,9 +51,11 @@ class MyHostApduService : HostApduService() {
 
         return byteArray
     }
+    fun Boolean.toUByte() = if (this) 1u.toUByte() else 0u.toUByte()
 
     override fun onCreate() {
         super.onCreate()
+        prefs = this.getSharedPreferences("app_counter", MODE_PRIVATE)
     }
 
     override fun processCommandApdu(commandApdu: ByteArray, extras: Bundle?): ByteArray {
@@ -90,7 +105,7 @@ class MyHostApduService : HostApduService() {
 
         if (MainActivity.shouldClean()){
             runBlocking {
-                dataStore.updateData {
+                dataStoreCommunication.updateData {
                     getDefaultInstance()
                 }
             }
@@ -100,7 +115,7 @@ class MyHostApduService : HostApduService() {
 
         runBlocking {
             try {
-                dataStruct = CommunicationStruct.createCommunicationStruct(dataStore.data.first())
+                dataStruct = CommunicationStruct.createCommunicationStruct(dataStoreCommunication.data.first())
                 if (!dataStruct.channel.contentEquals(communicationStruct.channel) ||
                     dataStruct.date.time + MAX_TIME_CASHING_DATA < communicationStruct.date.time)
                     throw kotlin.NoSuchElementException()
@@ -115,7 +130,7 @@ class MyHostApduService : HostApduService() {
                 if ((communicationStruct.command !in arrayOf(Commands.UNRECOGNIZED, Commands.Continue))){
                     Log.d("HCE", "data added")
                     dataStruct.addData(communicationStruct.data)
-                    dataStore.updateData {
+                    dataStoreCommunication.updateData {
                         dataStruct.toCommunicationData()
                     }
                     returnStatusOk = true
@@ -124,7 +139,7 @@ class MyHostApduService : HostApduService() {
             } catch (_: NoSuchElementException){
                 Log.d("HCE", "caught")
                 if (communicationStruct.command !in arrayOf(Commands.UNRECOGNIZED, Commands.Continue)) {
-                    dataStore.updateData {
+                    dataStoreCommunication.updateData {
                         communicationStruct.toCommunicationData()
                     }
                     dataStruct = communicationStruct
@@ -149,7 +164,7 @@ class MyHostApduService : HostApduService() {
 
         when (communicationStruct.command) {
             Commands.Register -> {
-                val keyPair = generateKeyPair()
+                val (keyPair : KeyPair, alias : String) = generateKeyPair()
 
                 //user public key in X,Y uncompressed format
                 val ecPoint: ECPoint = (keyPair.public as ECPublicKey).w
@@ -163,11 +178,30 @@ class MyHostApduService : HostApduService() {
                 Log.d("HCE", "pub key: ${uncompressedPublicKey.joinToString { "%02X ".format(it.toInt()) }} len = ${uncompressedPublicKey.size}")
 
                 //TODO probably should use challenge data to generate cert
-                //TODO permanent save of generated credential
                 val cert = generateCert(keyPair)
                 Log.d("HCE", "cert: ${cert.encoded.joinToString { "%02X ".format(it.toInt()) }} len = ${cert.encoded.size}")
 
-                val handle = ubyteArrayOf(0x10u, 0x11u, 0x10u, 0x11u, 0x10u)//generateKeyHandle(keyPair.private)
+                val handle = generateKeyHandle(KeyStore.getInstance("AndroidKeyStore"), keyPair.private)
+
+                //save
+                runBlocking {
+                    val keyAliases = dataStoreCommunication.data.firstOrNull()
+                    if (keyAliases == null){
+                        dataStoreAliases.updateData {
+                            KeyAliases.getDefaultInstance()
+                        }
+                    }
+                    dataStoreAliases.updateData {
+                        it.toBuilder().addData(
+                            generateKeyAlias(alias, handle, dataStruct.data.copyOfRange(32, 64))
+                        ).build()
+                    }
+                }
+                var signatureData = UByteArray(0)
+                signatureData += 0x00u
+                signatureData += dataStruct.data
+                signatureData += handle
+                signatureData += uncompressedPublicKey.asUByteArray()
 
                 /**
                  * //register response
@@ -176,29 +210,99 @@ class MyHostApduService : HostApduService() {
                  * 1 byte      - length of handle
                  * 1-255 bytes - handle (private key encrypted with MASTER key)
                  * ??? bytes   - certificate in base64 (generated based on private kay)
-                 * //signature
-                 * 0x00        - reserved (RFU)
-                 * 32 bytes    - challenge parameters
-                 * 32 bytes    - application id
-                 * 1-255 bytes - handle
-                 * 65 bytes    - public key (uncompressed X Y values from EC curve aka)
+                 * signature
+                 *   0x00        - reserved (RFU)
+                 *   32 bytes    - challenge parameters
+                 *   32 bytes    - application parameters
+                 *   1-255 bytes - handle
+                 *   65 bytes    - public key (uncompressed X Y values from EC curve aka)
                  *
-                 * size = 900 bytes + 2 x handle size
+                 * size ≈ 420 bytes + 2 x handle size
                  */
                 response += 0x05u
                 response += uncompressedPublicKey.asUByteArray()
                 response += handle.size.toUByte()
                 response += handle
                 response += cert.encoded.asUByteArray()
-                response += 0x00u
-                response += dataStruct.data
-                response += handle
-                response += uncompressedPublicKey.asUByteArray()
+                //signature
+                response += signData(signatureData, KeyStore.getInstance("AndroidKeyStore"), alias)
                 response += STATUS_SUCCESS
 
                 dataStruct.generateReturnData(response)
             }
-            Commands.Authenticate -> TODO()
+            Commands.Authenticate -> {
+                /**
+                 * Auth request
+                 * 1 byte - control byte
+                 *      0x03 "enforce-user-presence-and-sign"
+                 *      0x07 "check-only"
+                 *      0x08 "don't-enforce-user-presence-and-sign" same as 0x03 in current version
+                 * 32 bytes    - challenge parameters
+                 * 32 bytes    - application parameters
+                 * 1 byte      - handle length
+                 * 1-255 bytes - handle
+                 */
+                var logInAllowed = true
+                val controlByte = dataStruct.data[0]
+                val challenge = dataStruct.data.copyOfRange(1, 33)
+                val application = dataStruct.data.copyOfRange(33, 65)
+                val handleLength = dataStruct.data[65]
+                val handle = dataStruct.data.copyOfRange(66, dataStruct.data.size)
+
+                if (controlByte !in ubyteArrayOf(0x03u, 0x07u, 0x08u)) {
+                    Log.d("HCE", "incorrect request code $controlByte")
+                    return (RETURN_PREAMBLE + 0x01u + STATUS_FAILED).asByteArray()
+                }
+
+                val keyAliasStruct: HostApduServiceUtil.Companion.KeyAliasStruct =
+                    getKeyAliasStruct(dataStoreAliases, handle)
+                        ?: HostApduServiceUtil.Companion.KeyAliasStruct("", handle, application)
+
+                if (keyAliasStruct.alias == ""){
+                    Log.d("HCE", "key handle not found")
+                    logInAllowed = false
+                }else if (keyAliasStruct.appId != application){
+                    Log.d("HCE", "app ids mismatch")
+                    logInAllowed = false
+                }
+                //turned off for the time being
+                //if (controlByte == (0x07).toUByte())//should be replaced with relevent response based on raw communication
+                //    return (RETURN_PREAMBLE + 0x01u + STATUS_SUCCESS).asByteArray()
+
+                val counter = prefs.getInt("MainCounter",0)
+                prefs.edit {
+                    putInt("MainCounter", counter + 1)
+                }
+
+                val counterBytes = ubyteArrayOf(
+                    counter.ushr(24).and(0xFF).toUByte(),
+                    counter.ushr(16).and(0xFF).toUByte(),
+                    counter.ushr(8).and(0xFF).toUByte(),
+                    counter.and(0xFF).toUByte(),
+                )
+
+                var signatureData = UByteArray(0)
+                signatureData += application
+                signatureData += logInAllowed.toUByte()
+                signatureData += counterBytes
+                signatureData += challenge
+
+                /**
+                 * Auth response
+                 * 1 byte   - user presence 1 - authorized, 0 - not
+                 * 4 bytes  - counter status
+                 * signature
+                 *   32 bytes - application parameters
+                 *   1 byte   - user presence
+                 *   4 bytes  - counter status
+                 *   32 bytes - challenge parameters
+                 */
+
+                response += logInAllowed.toUByte()
+                response += counterBytes
+                response += if (keyAliasStruct.alias != "") signData(signatureData, KeyStore.getInstance("AndroidKeyStore"), keyAliasStruct.alias) else signatureData
+                dataStruct.generateReturnData(response)
+            }
             Commands.Version -> {
                 dataStruct.generateReturnData("U2F_V2".encodeToByteArray().asUByteArray() + STATUS_SUCCESS)
             }
@@ -218,7 +322,7 @@ class MyHostApduService : HostApduService() {
 
                 dataStruct.numberOfReturnedPackets = packetNumber
                 runBlocking {
-                    dataStore.updateData {
+                    dataStoreCommunication.updateData {
                         dataStruct.toCommunicationData()
                     }
                 }
@@ -232,7 +336,7 @@ class MyHostApduService : HostApduService() {
         }
 
         runBlocking {
-            dataStore.updateData {
+            dataStoreCommunication.updateData {
                 dataStruct.toCommunicationData()
             }
         }
@@ -247,7 +351,6 @@ class MyHostApduService : HostApduService() {
     }
 
     companion object {
-        const val SUPER_PRIVATE_MASTER_KEY = ""//to be generated
         const val MAX_DATA_PER_PACKET = 160
         const val MAX_TIME_CASHING_DATA = 5 * 60 * 1000 // 5 min
         val STATUS_SUCCESS = ubyteArrayOf(0x90u, 0x00u)
