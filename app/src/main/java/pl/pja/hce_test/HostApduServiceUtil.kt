@@ -4,10 +4,12 @@ package pl.pja.hce_test
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
-import android.util.Log
 import androidx.datastore.core.DataStore
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import org.bouncycastle.asn1.ASN1Integer
+/* import org.bouncycastle.asn1.DERInteger */
+import org.bouncycastle.asn1.DERSequence
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.asn1.x509.BasicConstraints
 import org.bouncycastle.asn1.x509.Extension
@@ -163,7 +165,17 @@ class HostApduServiceUtil {
                 sign()
             }
 
-            return signature.asUByteArray()
+            val len: Int = signature.size / 2
+
+            val rBytes: ByteArray = signature.copyOfRange(0, len)
+            val sBytes: ByteArray = signature.copyOfRange(len, signature.size)
+
+            return encodeSignature(BigInteger(1, rBytes), BigInteger(1, sBytes))
+
+            //return signature.asUByteArray()
         }
+
+        private fun encodeSignature(r: BigInteger, s: BigInteger): UByteArray =
+            DERSequence(arrayOf(ASN1Integer(r), ASN1Integer(s))).encoded.asUByteArray()
     }
 }
