@@ -124,7 +124,9 @@ class MyHostApduService : HostApduService() {
                 if(dataStruct.command != communicationStruct.command &&
                     communicationStruct.command !in arrayOf(Commands.UNRECOGNIZED, Commands.Continue))
                     throw kotlin.NoSuchElementException()
-
+                //same command code but different request
+                if (dataStruct.command == communicationStruct.command && dataStruct.returnData.isNotEmpty())
+                    throw kotlin.NoSuchElementException()
                 //channel ok; time ok; command ok or command unknown or continue
                 if (communicationStruct.command == Commands.Continue)
                     returnStatusOk = true //confirmation massage was corrupted
@@ -233,7 +235,7 @@ class MyHostApduService : HostApduService() {
 
                 dataStruct.generateReturnData(response)
             }
-            Commands.Authenticate -> {
+            Commands.Authenticate -> run {
                 /**
                  * Auth request
                  * 1 byte - control byte
@@ -272,9 +274,14 @@ class MyHostApduService : HostApduService() {
 
                     logInAllowed = false
                 }
-                //turned off for the time being
-                //if (controlByte == (0x07).toUByte())//should be replaced with relevent response based on raw communication
-                //    return (RETURN_PREAMBLE + 0x01u + STATUS_SUCCESS).asByteArray()
+
+                if (controlByte == (0x07).toUByte()){
+                    if (logInAllowed)
+                        dataStruct.generateReturnData(RETURN_PREAMBLE + 0x01u + SW_CONDITIONS_NOT_SATISFIED)//everything was ok
+                    else
+                        dataStruct.generateReturnData(RETURN_PREAMBLE + 0x01u + SW_WRONG_DATA)//handle not found
+                    return@run
+                }
 
                 val counter = prefs.getInt("MainCounter",0)
                 prefs.edit {
@@ -364,14 +371,18 @@ class MyHostApduService : HostApduService() {
         const val MAX_TIME_CASHING_DATA = 5 * 60 * 1000 // 5 min
         val STATUS_SUCCESS = ubyteArrayOf(0x90u, 0x00u)
         val STATUS_FAILED = ubyteArrayOf(0x6Fu, 0x00u)
-        private val CLA_NOT_SUPPORTED = ubyteArrayOf(0x6Eu, 0x00u)
-        private val INS_NOT_SUPPORTED = ubyteArrayOf(0x6Du, 0x00u)
+        private val SW_CLA_NOT_SUPPORTED = ubyteArrayOf(0x6Eu, 0x00u)
+        private val SW_INS_NOT_SUPPORTED = ubyteArrayOf(0x6Du, 0x00u)
+        val SW_CONDITIONS_NOT_SATISFIED = ubyteArrayOf(0x69u, 0x85u)
+        val SW_WRONG_DATA = ubyteArrayOf(0x6Au, 0x80u)
         val RETURN_PREAMBLE = ubyteArrayOf(0x00u, 0xA4u, 0x04u, 0x00u, 0x07u)
         //should be changed in xml too
         val AID = ubyteArrayOf(0xF0u, 0x01u, 0x02u, 0x03u, 0x04u, 0x05u, 0x06u)
         private const val SELECT_INS : UByte = 0xA4u
         private const val DEFAULT_CLA : UByte = 0x00u
         private const val MIN_APDU_LENGTH = 12
+
+
 
         /*enum class Commands(val code: String){
             Register("01"),
@@ -390,10 +401,10 @@ class MyHostApduService : HostApduService() {
                 return STATUS_FAILED
 
             if (hexCommandApdu[0] != DEFAULT_CLA)
-                return CLA_NOT_SUPPORTED
+                return SW_CLA_NOT_SUPPORTED
 
             if (hexCommandApdu[1] != SELECT_INS)
-                return INS_NOT_SUPPORTED
+                return SW_INS_NOT_SUPPORTED
 
             if (hexCommandApdu[4].toInt() < 5) {
                 Log.d("HCE", "too short apdu")

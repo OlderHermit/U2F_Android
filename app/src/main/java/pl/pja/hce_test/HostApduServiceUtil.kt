@@ -159,23 +159,13 @@ class HostApduServiceUtil {
             keyStore.load(null)
 
             val key = keyStore.getKey(handle.joinToString {"%02X".format(it.toInt())}, null) as PrivateKey
-            val signature: ByteArray = Signature.getInstance("ECDSA").run {//prev SHA256withECDSA
+            val signature: ByteArray = Signature.getInstance("ECDSA").run {//prev SHA256withECDSA //ECDSA(SHA1withECDSA)
                 initSign(key)
                 update(data.asByteArray())
                 sign()
             }
 
-            val len: Int = signature.size / 2
-
-            val rBytes: ByteArray = signature.copyOfRange(0, len)
-            val sBytes: ByteArray = signature.copyOfRange(len, signature.size)
-
-            return encodeSignature(BigInteger(1, rBytes), BigInteger(1, sBytes))
-
-            //return signature.asUByteArray()
+            return signature.asUByteArray()
         }
-
-        private fun encodeSignature(r: BigInteger, s: BigInteger): UByteArray =
-            DERSequence(arrayOf(ASN1Integer(r), ASN1Integer(s))).encoded.asUByteArray()
     }
 }
