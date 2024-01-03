@@ -248,12 +248,12 @@ class MyHostApduService : HostApduService() {
                  * 1-255 bytes - handle
                  */
                 var logInAllowed = true
-                val controlByte = dataStruct.data[0]
-                val challenge = dataStruct.data.copyOfRange(1, 33)
-                val application = dataStruct.data.copyOfRange(33, 65)
-                val handleLength = dataStruct.data[65]
-                val handle = dataStruct.data.copyOfRange(66, 66 + handleLength.toInt())
+                val controlByte = dataStruct.data[0]//true control byte is data[1] and will be skipped
+                val challenge = dataStruct.data.copyOfRange(2, 34)
+                val application = dataStruct.data.copyOfRange(34, 66)
+                val handleLength = dataStruct.data[66]
                 Log.d("HCE", "handle length $handleLength")
+                val handle = dataStruct.data.copyOfRange(67, 67 + handleLength.toInt())
 
                 if (controlByte !in ubyteArrayOf(0x03u, 0x07u, 0x08u)) {
                     Log.d("HCE", "incorrect request code $controlByte")

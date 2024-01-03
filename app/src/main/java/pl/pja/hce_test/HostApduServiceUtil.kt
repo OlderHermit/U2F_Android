@@ -159,7 +159,7 @@ class HostApduServiceUtil {
             keyStore.load(null)
 
             val key = keyStore.getKey(handle.joinToString {"%02X".format(it.toInt())}, null) as PrivateKey
-            val signature: ByteArray = Signature.getInstance("ECDSA").run {//prev SHA256withECDSA //ECDSA(SHA1withECDSA)
+            val signature: ByteArray = Signature.getInstance("SHA256withECDSA").run {//prev SHA256withECDSA //ECDSA(SHA1withECDSA)
                 initSign(key)
                 update(data.asByteArray())
                 sign()
