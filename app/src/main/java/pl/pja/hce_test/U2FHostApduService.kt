@@ -30,7 +30,7 @@ import java.security.spec.ECPoint
 import java.util.*
 
 
-class MyHostApduService : HostApduService() {
+class U2FHostApduService : HostApduService() {
     private lateinit var prefs: SharedPreferences
     private val dataStoreCommunication: DataStore<CommunicationData> by dataStore(
         fileName = "communication_data",
@@ -179,11 +179,11 @@ class MyHostApduService : HostApduService() {
                 uncompressedPublicKey[0] = 0x04  // indicates uncompressed format
                 System.arraycopy(x, 0, uncompressedPublicKey, 1, x.size)
                 System.arraycopy(y, 0, uncompressedPublicKey, 1 + x.size, y.size)
-                Log.d("HCE", "pub key: ${uncompressedPublicKey.joinToString { "%02X ".format(it.toInt()) }} len = ${uncompressedPublicKey.size}")
+                //Log.d("HCE", "pub key: ${uncompressedPublicKey.joinToString { "%02X ".format(it.toInt()) }} len = ${uncompressedPublicKey.size}")
 
                 //TODO probably should use challenge data to generate cert
                 val cert = generateCert(keyPair)
-                Log.d("HCE", "cert: ${cert.encoded.joinToString { "%02X ".format(it.toInt()) }} len = ${cert.encoded.size}")
+                //Log.d("HCE", "cert: ${cert.encoded.joinToString { "%02X ".format(it.toInt()) }} len = ${cert.encoded.size}")
 
                 val handle = generateKeyHandle(KeyStore.getInstance("AndroidKeyStore"), keyPair.private)
 
@@ -259,7 +259,7 @@ class MyHostApduService : HostApduService() {
                     Log.d("HCE", "incorrect request code $controlByte")
                     return (RETURN_PREAMBLE + 0x01u + STATUS_FAILED).asByteArray()
                 }
-                Log.d("HCE", "send handle   ${handle.joinToString {"%02X".format(it.toInt())}}")
+                //Log.d("HCE", "send handle   ${handle.joinToString {"%02X".format(it.toInt())}}")
                 val registerDataStruct: RegisterDataStruct =
                     getRegisterDataStruct(dataStoreAliases, handle)
                         ?: RegisterDataStruct(ubyteArrayOf(), ubyteArrayOf())
@@ -342,7 +342,7 @@ class MyHostApduService : HostApduService() {
                         dataStruct.toCommunicationData()
                     }
                 }
-                Log.d("HCE", "return ${dataStruct.returnData[packetNumber].joinToString(" "){"%02X".format(it.toInt())}}")
+                //Log.d("HCE", "return ${dataStruct.returnData[packetNumber].joinToString(" "){"%02X".format(it.toInt())}}")
                 return (RETURN_PREAMBLE + dataStruct.returnData[packetNumber] + STATUS_SUCCESS).asByteArray()
             }
             else -> {
@@ -358,7 +358,7 @@ class MyHostApduService : HostApduService() {
         }
 
         Log.d("HCE", "sending first part of response out of ${dataStruct.numberOfSendPackets}")
-        Log.d("HCE", "return ${dataStruct.returnData[0].joinToString(" "){"%02X".format(it.toInt())}}")
+        //Log.d("HCE", "return ${dataStruct.returnData[0].joinToString(" "){"%02X".format(it.toInt())}}")
         return (RETURN_PREAMBLE + dataStruct.numberOfSendPackets.toUByte() + dataStruct.returnData[0] + STATUS_SUCCESS).asByteArray()
     }
 

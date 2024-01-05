@@ -2,4 +2,8 @@
     <string name="app_name">HCE_Test</string>
     <string name="servicedesc">HEC for u2f</string>
     <string name="aiddescription">AID for u2f</string>
+    <string name="authenticate">Authenticate</string>
+    <string name="clear_cashe">Clear Cashe</string>
+    <string name="status_locked">Vault locked</string>
+    <string name="status_unlocked">U2F vault unlocked</string>
 </resources>

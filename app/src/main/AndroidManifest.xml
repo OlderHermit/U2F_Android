@@ -3,6 +3,7 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.NFC" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <uses-feature
         android:name="android.hardware.nfc.hce"
@@ -19,7 +20,7 @@
         android:theme="@style/Theme.HCE_Test"
         tools:targetApi="31">
         <service
-            android:name=".MyHostApduService"
+            android:name=".U2FHostApduService"
             android:enabled="true"
             android:exported="true"
             android:permission="android.permission.BIND_NFC_SERVICE">

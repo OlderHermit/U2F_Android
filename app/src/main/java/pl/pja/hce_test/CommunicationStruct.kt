@@ -1,8 +1,8 @@
 package pl.pja.hce_test
 
 import pl.pja.hce_test.CommunicationData.Commands
-import pl.pja.hce_test.MyHostApduService.Companion.AID
-import pl.pja.hce_test.MyHostApduService.Companion.MAX_DATA_PER_PACKET
+import pl.pja.hce_test.U2FHostApduService.Companion.AID
+import pl.pja.hce_test.U2FHostApduService.Companion.MAX_DATA_PER_PACKET
 import java.time.Instant
 import java.util.*
 import kotlin.collections.ArrayList
