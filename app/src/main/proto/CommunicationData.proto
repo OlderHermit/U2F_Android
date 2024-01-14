@@ -10,7 +10,7 @@ message CommunicationData {
     Register = 1;
     Authenticate = 2;
     Version = 3;
-    //te meet doc standards (raw msg formats) should start with code 0x40+
+    //to meet doc standards (raw msg formats) should start with code 0x40+
     Continue = 4;
     Echo = 5;
   }
