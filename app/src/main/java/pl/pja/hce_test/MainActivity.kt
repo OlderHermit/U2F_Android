@@ -94,8 +94,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        disAllowWork()
         super.onDestroy()
+        disAllowWork()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        disAllowWork()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        biometricPrompt.authenticate(promptInfo)
     }
 
     private fun allowWork() { shouldWork = true; updateViewWork()}

@@ -7,9 +7,6 @@ import android.security.keystore.KeyProperties
 import androidx.datastore.core.DataStore
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import org.bouncycastle.asn1.ASN1Integer
-/* import org.bouncycastle.asn1.DERInteger */
-import org.bouncycastle.asn1.DERSequence
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.asn1.x509.BasicConstraints
 import org.bouncycastle.asn1.x509.Extension
@@ -92,7 +89,7 @@ class HostApduServiceUtil {
             return JcaX509CertificateConverter().getCertificate(certHolder)
         }
 
-        fun generateKeyHandle(keyStore: KeyStore, privateKey: PrivateKey): UByteArray {
+        fun generateKeyHandle(keyStore: KeyStore, privateKey: PrivateKey, appId: UByteArray): UByteArray {
             keyStore.load(null)
 
             val alias = "Test_U2F_Master"
@@ -112,8 +109,8 @@ class HostApduServiceUtil {
                             KeyProperties.PURPOSE_ENCRYPT
                         ).run {
                             setDigests(KeyProperties.DIGEST_SHA512)
-                            setBlockModes(KeyProperties.BLOCK_MODE_CBC)
-                            setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
+                            setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                            setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                             setKeySize(256)
                             build()
                         }
@@ -125,10 +122,10 @@ class HostApduServiceUtil {
                     }
                     )
 
-            val cipher = Cipher.getInstance("AES/CBC/PKCS7Padding")
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.ENCRYPT_MODE, masterKey)
 
-            return cipher.doFinal(privateKey.encoded).asUByteArray()
+            return cipher.doFinal(privateKey.encoded + appId.asByteArray()).asUByteArray()
         }
 
         fun saveGeneratedRegister(handle: UByteArray, appId: UByteArray): SavedKeys.Key {
@@ -159,13 +156,11 @@ class HostApduServiceUtil {
             keyStore.load(null)
 
             val key = keyStore.getKey(handle.joinToString {"%02X".format(it.toInt())}, null) as PrivateKey
-            val signature: ByteArray = Signature.getInstance("SHA256withECDSA").run {//prev SHA256withECDSA //ECDSA(SHA1withECDSA)
+            return Signature.getInstance("SHA256withECDSA").run {
                 initSign(key)
                 update(data.asByteArray())
                 sign()
-            }
-
-            return signature.asUByteArray()
+            }.asUByteArray()
         }
     }
 }

@@ -181,6 +181,8 @@ class U2FHostApduService : HostApduService() {
         when (communicationStruct.command) {
             Commands.Register -> {
                 val keyPair : KeyPair = generateKeyPair()
+                val challenge: UByteArray = dataStruct.data.copyOfRange(0, 32)
+                val appID: UByteArray = dataStruct.data.copyOfRange(32, 64)
 
                 //user public key in X,Y uncompressed format
                 val ecPoint: ECPoint = (keyPair.public as ECPublicKey).w
@@ -197,7 +199,7 @@ class U2FHostApduService : HostApduService() {
                 val cert = generateCert(keyPair)
                 //Log.d("HCE", "cert: ${cert.encoded.joinToString { "%02X ".format(it.toInt()) }} len = ${cert.encoded.size}")
 
-                val handle = generateKeyHandle(KeyStore.getInstance("AndroidKeyStore"), keyPair.private)
+                val handle = generateKeyHandle(KeyStore.getInstance("AndroidKeyStore"), keyPair.private, appID)
 
                 //save
                 savePrivateKey(handle, keyPair.private, cert)
@@ -227,14 +229,14 @@ class U2FHostApduService : HostApduService() {
                  * 1 byte      - length of handle
                  * 1-255 bytes - handle (private key encrypted with MASTER key)
                  * ??? bytes   - certificate in base64 (generated based on private kay)
-                 * signature
+                 * 71-73 bytes - signature
                  *   0x00        - reserved (RFU)
                  *   32 bytes    - challenge parameters
                  *   32 bytes    - application parameters
                  *   1-255 bytes - handle
                  *   65 bytes    - public key (uncompressed X Y values from EC curve aka)
                  *
-                 * size ≈ 420 bytes + 2 x handle size
+                 * size ≈ 420 bytes + handle size
                  */
                 response += 0x05u
                 response += uncompressedPublicKey.asUByteArray()
