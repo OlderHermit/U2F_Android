@@ -93,10 +93,6 @@ class HostApduServiceUtil {
             keyStore.load(null)
 
             val alias = "Test_U2F_Master"
-            //if (keyStore.containsAlias(alias)) {
-            //    Log.d("HCE", "regenerated key")
-            //    keyStore.deleteEntry(alias)
-            //}
 
             val masterKey: SecretKey = (
                     if (!keyStore.containsAlias(alias)) {
@@ -140,7 +136,6 @@ class HostApduServiceUtil {
             var res = SavedKeys.Key.getDefaultInstance()
             runBlocking {
                 //first() should never find null (if null register should generate new instance)
-                //store.data.first().keysList.forEach { Log.d("HCE", "saved handle: ${it.keyHandleList.joinToString { it1 -> "%02X".format(it1.toInt())} }")}
                 res = store.data.first().keysList.firstOrNull { it.keyHandleList == test }
             }
             return if(res != null)

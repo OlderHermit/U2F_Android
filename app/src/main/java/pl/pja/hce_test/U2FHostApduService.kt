@@ -82,37 +82,12 @@ class U2FHostApduService : HostApduService() {
         if(!statusCheck.contentEquals(STATUS_SUCCESS))
             return makeOkPacket()
 
-        Log.d("HCE", "processCommandApdu")
-        Log.d("HCE", commandApdu.joinToString(" ") { "%02X".format(it) })
+        log("HCE", "processCommandApdu")
+        log("HCE", commandApdu.joinToString(" ") { "%02X".format(it) })
 
         //create struct
         val communicationStruct = CommunicationStruct.createCommunicationStruct(commandApdu.asUByteArray())
-        Log.d("HCE", "command ${communicationStruct.command.name}" )
-        Log.d("HCE", "$communicationStruct" )
-        /**
-        //czy miałem taki channel
-            //nie
-                //zapisz nowy strukt
-            //tak
-                //czy time out < 5 min
-                    //tak
-                        //czy resend
-                            //nie
-                                //dodaj dane do starego struct i return ok
-                            //tak
-                                //czy pakiet ma wypełnione return data
-                                    //tak
-                                        //return normalnie resend
-                                    //nie
-                                        //return domyśle ok (wysłanie danych nie koćzy się błędem w aktualnej wersji)
-                    //nie
-                        //czy resend
-                            //tak
-                                //return timed-out
-                            //nie
-                                //nadpisz stary nowym struct
-        */
-
+        log("HCE", "command ${communicationStruct.command.name}" )
 
         //decide what to do with packet
         var allDataAcquired = false
@@ -126,7 +101,7 @@ class U2FHostApduService : HostApduService() {
                 }
             }
             MainActivity.cleaned()
-            Log.d("HCE", "cleaned cache")
+            log("HCE", "cleaned cache")
         }
 
         runBlocking {
@@ -168,9 +143,8 @@ class U2FHostApduService : HostApduService() {
             allDataAcquired = true
         }
 
-        //Log.d("HCE", "channel $dataStruct")
-        Log.d("HCE", "num of acq ${dataStruct.numberOfAcquiredPackets} expect ${dataStruct.numberOfExpectedPackets}")
-        Log.d("HCE", "all data acquired $allDataAcquired returnStatus $returnStatusOk")
+        log("HCE", "num of acq ${dataStruct.numberOfAcquiredPackets} expect ${dataStruct.numberOfExpectedPackets}")
+        log("HCE", "all data acquired $allDataAcquired returnStatus $returnStatusOk")
         if (!allDataAcquired){
             return if (returnStatusOk)
                 makeOkPacket()
@@ -193,11 +167,9 @@ class U2FHostApduService : HostApduService() {
                 uncompressedPublicKey[0] = 0x04  // indicates uncompressed format
                 System.arraycopy(x, 0, uncompressedPublicKey, 1, x.size)
                 System.arraycopy(y, 0, uncompressedPublicKey, 1 + x.size, y.size)
-                //Log.d("HCE", "pub key: ${uncompressedPublicKey.joinToString { "%02X ".format(it.toInt()) }} len = ${uncompressedPublicKey.size}")
 
-                //TODO probably should use challenge data to generate cert
+                //TODO probably should also use challenge data to generate cert
                 val cert = generateCert(keyPair)
-                //Log.d("HCE", "cert: ${cert.encoded.joinToString { "%02X ".format(it.toInt()) }} len = ${cert.encoded.size}")
 
                 val handle = generateKeyHandle(KeyStore.getInstance("AndroidKeyStore"), keyPair.private, appID)
 
@@ -266,25 +238,24 @@ class U2FHostApduService : HostApduService() {
                 val challenge = dataStruct.data.copyOfRange(2, 34)
                 val application = dataStruct.data.copyOfRange(34, 66)
                 val handleLength = dataStruct.data[66]
-                Log.d("HCE", "handle length $handleLength")
                 val handle = dataStruct.data.copyOfRange(67, 67 + handleLength.toInt())
 
                 if (controlByte !in ubyteArrayOf(0x03u, 0x07u, 0x08u)) {
-                    Log.d("HCE", "incorrect request code $controlByte")
+                    log("HCE", "incorrect request code $controlByte")
                     return makeErrorPacket()
                 }
-                //Log.d("HCE", "send handle   ${handle.joinToString {"%02X".format(it.toInt())}}")
+
                 val registerDataStruct: RegisterDataStruct =
                     getRegisterDataStruct(dataStoreAliases, handle)
                         ?: RegisterDataStruct(ubyteArrayOf(), ubyteArrayOf())
 
                 if (registerDataStruct.keyHandle.isEmpty()){
-                    Log.d("HCE", "key handle not found")
+                    log("HCE", "key handle not found")
                     logInAllowed = false
                 }else if (!registerDataStruct.appId.contentEquals(application)){
-                    Log.d("HCE", "app ids mismatch")
-                    Log.d("HCE", "got ${application.joinToString { "%02X".format(it.toInt()) }}")
-                    Log.d("HCE", "app ${registerDataStruct.appId.joinToString { "%02X".format(it.toInt()) }}}")
+                    log("HCE", "app ids mismatch")
+                    log("HCE", "got ${application.joinToString { "%02X".format(it.toInt()) }}")
+                    log("HCE", "app ${registerDataStruct.appId.joinToString { "%02X".format(it.toInt()) }}}")
 
                     logInAllowed = false
                 }
@@ -338,15 +309,14 @@ class U2FHostApduService : HostApduService() {
             }
             Commands.Echo -> {
                 dataStruct.generateReturnData(dataStruct.data)
-                Log.d("HCE", "${dataStruct.data}")
-                Log.d("HCE", "${dataStruct.returnData}")
+                log("HCE", "${dataStruct.data}")
             }
             Commands.Continue -> {
-                Log.d("HCE", "Continue for ${dataStruct.channel.toList().joinToString { "%02X ".format(it.toInt()) }}")
+                log("HCE", "Continue for ${dataStruct.channel.toList().joinToString { "%02X ".format(it.toInt()) }}")
 
                 val packetNumber = communicationStruct.data[0].toInt()
                 if (packetNumber >= dataStruct.returnData.size) {
-                    Log.d("HCE", "Error index out of range expected max ${dataStruct.numberOfSendPackets}, got $packetNumber")
+                    log("HCE", "Error index out of range expected max ${dataStruct.numberOfSendPackets}, got $packetNumber")
                     return makeResponsePacketNoCount(ubyteArrayOf(), STATUS_FAILED)
                 }
 
@@ -356,11 +326,10 @@ class U2FHostApduService : HostApduService() {
                         dataStruct.toCommunicationData()
                     }
                 }
-                //Log.d("HCE", "return ${dataStruct.returnData[packetNumber].joinToString(" "){"%02X".format(it.toInt())}}")
                 return makeResponsePacketNoCount(dataStruct.returnData[packetNumber], STATUS_SUCCESS)
             }
             else -> {
-                Log.d("HCE", "could not parce code for func %02X".format(commandApdu[12 + AID.size]))
+                log("HCE", "could not parse code for func %02X".format(commandApdu[12 + AID.size]))
                 return makeErrorPacket()
             }
         }
@@ -371,17 +340,16 @@ class U2FHostApduService : HostApduService() {
             }
         }
 
-        Log.d("HCE", "sending first part of response out of ${dataStruct.numberOfSendPackets}")
-        //Log.d("HCE", "return ${dataStruct.returnData[0].joinToString(" "){"%02X".format(it.toInt())}}")
-        //return (RETURN_PREAMBLE + dataStruct.numberOfSendPackets.toUByte() + dataStruct.returnData[0] + STATUS_SUCCESS).asByteArray()
+        log("HCE", "sending first part of response out of ${dataStruct.numberOfSendPackets}")
         return makeResponsePacket(dataStruct.numberOfSendPackets, dataStruct.returnData[0], STATUS_SUCCESS)
     }
 
     override fun onDeactivated(reason: Int) {
-        Log.d("HCE", "Deactivated: $reason")
+        log("HCE", "Deactivated: $reason")
     }
 
     companion object {
+        private const val DEBUG = false
         const val MAX_DATA_PER_PACKET = 160
         const val MAX_TIME_CASHING_DATA = 5 * 60 * 1000 // 5 min
         //should be changed in xml too
@@ -397,6 +365,8 @@ class U2FHostApduService : HostApduService() {
         private const val SELECT_INS : UByte = 0xA4u
         private const val DEFAULT_CLA : UByte = 0x00u
         private val MIN_APDU_LENGTH = 11 + AID.size
+
+        private fun log(tag: String, msg: String) { if (DEBUG) Log.d(tag, msg) }
 
         //00A4040007F0010203040506101112130300056563686F6563686F6563686F656368...00
         //00 A4 04 00 size AID Cid0 Cid1 Cid2 Cid3 num_of_packets data 0x00
@@ -414,17 +384,17 @@ class U2FHostApduService : HostApduService() {
                 return SW_INS_NOT_SUPPORTED
 
             if (hexCommandApdu[4].toInt() < 5) {
-                Log.d("HCE", "too short apdu")
+                log("HCE", "too short apdu")
                 return STATUS_FAILED
             }
 
             if (hexCommandApdu[4].toInt() != AID.size) {
-                Log.d("HCE", "incorrect AID length")
+                log("HCE", "incorrect AID length")
                 return STATUS_FAILED
             }
 
             if (!hexCommandApdu.copyOfRange(5, 5 + AID.size).contentEquals(AID)) {
-                Log.d("HCE", "should have never happened because of xml hardcoded AID")
+                log("HCE", "should have never happened because of xml hardcoded AID")
 
                 return STATUS_FAILED
             }
