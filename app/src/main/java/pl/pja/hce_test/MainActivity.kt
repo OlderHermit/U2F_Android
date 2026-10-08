@@ -85,7 +85,7 @@ class MainActivity : AppCompatActivity() {
             biometricPrompt.authenticate(promptInfo)
         }
         findViewById<Button?>(R.id.bt_clear).setOnClickListener {
-            shouldClean()
+            shouldClean = true
         }
 
         val runHceIntent = Intent(this, U2FHostApduService::class.java)
