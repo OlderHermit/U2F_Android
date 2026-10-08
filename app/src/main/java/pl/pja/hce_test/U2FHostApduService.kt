@@ -154,9 +154,10 @@ class U2FHostApduService : HostApduService() {
 
         when (communicationStruct.command) {
             Commands.Register -> {
+                // data[0] to młodszy bajt Lc, właściwe dane od indeksu 1
                 val keyPair : KeyPair = generateKeyPair()
-                val challenge: UByteArray = dataStruct.data.copyOfRange(0, 32)
-                val appID: UByteArray = dataStruct.data.copyOfRange(32, 64)
+                val challenge: UByteArray = dataStruct.data.copyOfRange(1, 33)
+                val appID: UByteArray = dataStruct.data.copyOfRange(33, 65)
 
                 //user public key in X,Y uncompressed format
                 val ecPoint: ECPoint = (keyPair.public as ECPublicKey).w
@@ -184,15 +185,17 @@ class U2FHostApduService : HostApduService() {
                     }
                     dataStoreAliases.updateData {
                         it.toBuilder().addKeys(
-                            saveGeneratedRegister(handle, dataStruct.data.copyOfRange(33, 65))
+                            saveGeneratedRegister(handle, appID)
                         ).build()
                     }
                 }
                 var signatureData = UByteArray(0)
                 signatureData += 0x00u
-                signatureData += dataStruct.data
+                signatureData += appID
+                signatureData += challenge
                 signatureData += handle
                 signatureData += uncompressedPublicKey.asUByteArray()
+                var signatureData = UByteArray(0)
 
                 /**
                  * //register response
@@ -268,6 +271,12 @@ class U2FHostApduService : HostApduService() {
                     return@run
                 }
 
+                if (!logInAllowed) {
+                    // klucz nie istnieje albo należy do innej strony
+                    dataStruct.generateReturnData(makeResponsePacket(SW_WRONG_DATA).asUByteArray())
+                    return@run
+                }
+
                 val counter = prefs.getInt("MainCounter",0)
                 prefs.edit {
                     putInt("MainCounter", counter + 1)
@@ -299,7 +308,7 @@ class U2FHostApduService : HostApduService() {
 
                 response += logInAllowed.toUByte()
                 response += counterBytes
-                response += if (registerDataStruct.keyHandle.isEmpty()) signData(signatureData, KeyStore.getInstance("AndroidKeyStore"), registerDataStruct.keyHandle) else signatureData
+                response += signData(signatureData, KeyStore.getInstance("AndroidKeyStore"), registerDataStruct.keyHandle)
                 response += STATUS_SUCCESS
 
                 dataStruct.generateReturnData(response)
